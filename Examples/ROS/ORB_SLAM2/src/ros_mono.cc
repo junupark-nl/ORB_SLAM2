@@ -26,21 +26,28 @@
 
 #include<ros/ros.h>
 #include <cv_bridge/cv_bridge.h>
+#include <geometry_msgs/PoseStamped.h>
 
 #include<opencv2/core/core.hpp>
 
 #include"../../../include/System.h"
+#include"../../../include/Converter.h"
 
 using namespace std;
 
 class ImageGrabber
 {
 public:
-    ImageGrabber(ORB_SLAM2::System* pSLAM):mpSLAM(pSLAM){}
+    ImageGrabber(ORB_SLAM2::System* pSLAM, ros::NodeHandle nodeHandler):nodeHandler_(nodeHandler), mpSLAM(pSLAM) {
+        mPubPose = nodeHandler_.advertise<geometry_msgs::PoseStamped>("/orb_slam2/pose2", 1);
+    }
 
     void GrabImage(const sensor_msgs::ImageConstPtr& msg);
+    void Publish(const cv::Mat& Tcw);
 
+    ros::NodeHandle nodeHandler_;
     ORB_SLAM2::System* mpSLAM;
+    ros::Publisher mPubPose;
 };
 
 int main(int argc, char **argv)
@@ -58,18 +65,15 @@ int main(int argc, char **argv)
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
     ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::MONOCULAR,true);
 
-    ImageGrabber igb(&SLAM);
-
     ros::NodeHandle nodeHandler;
-    ros::Subscriber sub = nodeHandler.subscribe("/camera/image_raw", 1, &ImageGrabber::GrabImage,&igb);
+    ImageGrabber igb(&SLAM, nodeHandler);
+
+    ros::Subscriber sub = nodeHandler.subscribe("/fisheye_adaptor/image_undistorted", 1, &ImageGrabber::GrabImage,&igb);
 
     ros::spin();
 
     // Stop all threads
     SLAM.Shutdown();
-
-    // Save camera trajectory
-    SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
 
     ros::shutdown();
 
@@ -90,7 +94,43 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
         return;
     }
 
-    mpSLAM->TrackMonocular(cv_ptr->image,cv_ptr->header.stamp.toSec());
+    Publish(mpSLAM->TrackMonocular(cv_ptr->image,cv_ptr->header.stamp.toSec()));
+}
+
+void ImageGrabber::Publish(const cv::Mat& Tcw)
+{
+    // Create a ROS message
+    geometry_msgs::PoseStamped poseStamped;
+    poseStamped.header.stamp = ros::Time::now();
+    poseStamped.header.frame_id = "map";
+
+    // Convert the matrix to quaternion
+    // cv::Mat Rwc = Tcw.rowRange(0,3).colRange(0,3).t();
+    // cv::Mat twc = -Rwc*Tcw.rowRange(0,3).col(3);
+    // std::vector<float> q = ORB_SLAM2::Converter::toQuaternion(Rwc);
+
+    // poseStamped.pose.position.x = twc.at<float>(0);
+    // poseStamped.pose.position.y = twc.at<float>(1);
+    // poseStamped.pose.position.z = twc.at<float>(2);
+
+    // poseStamped.pose.orientation.x = q.at(0);
+    // poseStamped.pose.orientation.y = q.at(1);
+    // poseStamped.pose.orientation.z = q.at(2);
+    // poseStamped.pose.orientation.w = q.at(3);
+
+
+
+    poseStamped.pose.position.x = 1;
+    poseStamped.pose.position.y = 2;
+    poseStamped.pose.position.z = 3;
+
+    poseStamped.pose.orientation.x = 0;
+    poseStamped.pose.orientation.y = 0;
+    poseStamped.pose.orientation.z = 0;
+    poseStamped.pose.orientation.w = 1;
+
+    // Publish the data
+    mPubPose.publish(poseStamped);
 }
 
 
